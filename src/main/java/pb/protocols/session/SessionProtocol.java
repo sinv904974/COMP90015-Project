@@ -5,6 +5,7 @@ import java.util.logging.Logger;
 import pb.Endpoint;
 import pb.EndpointUnavailable;
 import pb.Manager;
+import pb.Utils;
 import pb.protocols.Message;
 import pb.protocols.Protocol;
 import pb.protocols.IRequestReplyProtocol;
@@ -46,6 +47,12 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	 * or not.
 	 */
 	private volatile boolean protocolRunning=false;
+	
+	// tiffo
+	private int delay = 20;
+	private boolean receivedReply = false;
+	private boolean receivedStartRequest = false;
+	// tiffo
 	
 	/**
 	 * Initialise the protocol with an endpoint and manager.
@@ -95,6 +102,14 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	@Override
 	public void startAsServer() {
 		// nothing to do really
+		
+		// tiffo
+		Utils.getInstance().setTimeout(() -> {
+			if (receivedStartRequest == false) {
+				manager.endpointTimedOut(endpoint, this);
+			}
+		}, delay * 1000);
+		// tiffo
 	}
 	
 	/**
@@ -112,6 +127,13 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	@Override
 	public void sendRequest(Message msg) throws EndpointUnavailable {
 		endpoint.send(msg);
+		// tiffo
+		Utils.getInstance().setTimeout(() -> {
+			if (receivedReply == false) {
+				manager.endpointTimedOut(endpoint, this);
+			}
+		}, delay * 1000);
+		// tiffo
 	}
 
 	/**
@@ -123,6 +145,7 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	 */
 	@Override
 	public void receiveReply(Message msg) {
+		receivedReply = true;
 		if(msg instanceof SessionStartReply) {
 			if(protocolRunning){
 				// error, received a second reply?
@@ -152,6 +175,7 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	@Override
 	public void receiveRequest(Message msg) throws EndpointUnavailable {
 		if(msg instanceof SessionStartRequest) {
+			receivedStartRequest = true;
 			if(protocolRunning) {
 				// error, received a second request?
 				manager.protocolViolation(endpoint,this);
@@ -179,7 +203,8 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	 */
 	@Override
 	public void sendReply(Message msg) throws EndpointUnavailable {
-		endpoint.send(msg);
+		//endpoint.send(msg);
+		receivedReply = false;
 	}
 
 	

@@ -203,7 +203,7 @@ public class SessionProtocol extends Protocol implements IRequestReplyProtocol {
 	 */
 	@Override
 	public void sendReply(Message msg) throws EndpointUnavailable {
-		//endpoint.send(msg);
+		endpoint.send(msg);
 		receivedReply = false;
 	}
 

@@ -64,38 +64,32 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 	public static final String sessionError="SESSION_ERROR";
 	
 	/**
-	 * TODO for project 2A. Make the server listen to these events
-	 * on all client connections and call the appropriate shutdown method
-	 * if the received password matches the password for this server.
-	 * Events the server will listen for.
-	 */
-	
-	/**
-	 * Emitted to cause the server to shutdown. Single argument
-	 * is the password to check.
+	 * Emitted when a session should shutdown. Message is reason
+	 * for shutting down.
 	 * <ul>
 	 * <li>{@code args[0] instanceof String}</li>
 	 * </ul>
 	 */
-	public static final String shutdownServer="SHUTDOWN_SERVER";
+	public static final String shutdownServer="SERVER_SHUTDOWN";
 	
 	/**
-	 * Emitted to cause the server to force shutdown. Single argument
-	 * is the password to check.
+	 * Emitted when a session should shutdown, and will request sessions
+	 * to stop immediately. Message is reason for shutting down.
 	 * <ul>
 	 * <li>{@code args[0] instanceof String}</li>
 	 * </ul>
 	 */
-	public static final String forceShutdownServer="FORCE_SHUTDOWN_SERVER";
+	public static final String forceShutdownServer="SERVER_FORCE_SHUTDOWN";
 	
 	/**
-	 * Emitted to cause the server to vader shutdown. Single argument
-	 * is the password to check.
+	 * Emitted when a session should shutdown, and will directly close
+	 * connections. Message is reason for shutting down.
 	 * <ul>
 	 * <li>{@code args[0] instanceof String}</li>
 	 * </ul>
 	 */
-	public static final String vaderShutdownServer="VADER_SHUTDOWN_SERVER";
+	public static final String vaderShutdownServer="SERVER_VADER_SHUTDOWN";
+	
 	
 	/**
 	 * The io thread accepts connections and informs the server manager
@@ -116,12 +110,6 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 	 */
 	private final int port;
 	
-
-	/**
-	 * The password for this server.
-	 */
-	private String password = ""; // tiffo
-	
 	/**
 	 * Should we force shutdown, i.e force endpoints to close.
 	 */
@@ -131,6 +119,11 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 	 * Should we force shutdown and not even wait for endpoints to close.
 	 */
 	private volatile boolean vaderShutdown=false;
+	
+	/**
+	 * Password if given
+	 */
+	private String password=null;
 	
 	/**
 	 * Initialise the ServerManager with a port number for the io thread to listen on.
@@ -143,24 +136,24 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 	}
 	
 	/**
-	 * TODO: for Project 2B. Create an initializer that does as above but also takes
-	 * a password as an argument.
+	 * Initialise the ServerManager with a port number for the io thread to listen on.
+	 * and a password.
+	 * @param port to use when creating the io thread
+	 * @param password to use by admin clients
 	 */
-	
-	public ServerManager(int port, String password) { // tiffo
-		this.password = password;
+	public ServerManager(int port,String password) {
 		this.port=port;
 		liveEndpoints=new HashSet<>();
-		setName("ServerManager"); 
+		this.password = password;
+		setName("ServerManager"); // name the thread, urgh simple log can't print it :-(
 	}
 	
 	/**
-	 * TODO: for Project 2B. Use one of these methods appropriately for the event
-	 * emitted, when your server receives a correct password. Usually a single
-	 * shutdown method would suffice, but for servers it is convenient to have
-	 * different methods, depending on how the administrator wants to shut the
-	 * server down, like if they are in a rush, or can wait for existing clients to
-	 * finish up gracefully, or if they can't wait at all, etc.
+	 * Usually a single shutdown method would suffice, but for servers
+	 * it is convenient to have different methods, depending on how the
+	 * administrator wants to shut the server down, like if they are in
+	 * a rush, or can wait for existing clients to finish up gracefully,
+	 * or if they can't wait at all, etc.
 	 */
 	
 	public void shutdown() {
@@ -217,28 +210,30 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 		// terminated, and so the JVM will remain running until they do.
 		// However no new endpoints can be created.
 		
+		// let's create our own list of endpoints that exist at this point
+		HashSet<Endpoint> currentEndpoints = new HashSet<>();
+		synchronized(liveEndpoints) {
+			currentEndpoints = new HashSet<>(liveEndpoints);
+		}
+		
 		// if we want to tell clients to end session
 		// it is indeed possible that both may be set true
 		if(forceShutdown && !vaderShutdown) {
 			// let's send a stop session to existing clients
-			synchronized(liveEndpoints) {
-				liveEndpoints.forEach((endpoint)->{
-					SessionProtocol sessionProtocol=(SessionProtocol) endpoint.getProtocol("SessionProtocol");
-					if(sessionProtocol!=null)
-						sessionProtocol.stopSession();
-				});
-			}
+			currentEndpoints.forEach((endpoint)->{
+				SessionProtocol sessionProtocol=(SessionProtocol) endpoint.getProtocol("SessionProtocol");
+				if(sessionProtocol!=null)
+					sessionProtocol.stopSession();
+			});
 		}
 		
 		// in this case we just close the endpoints, which will likely cause
 		// abrupt disconnection
 		if(vaderShutdown) {
 			// let's just close everything
-			synchronized(liveEndpoints) {
-				liveEndpoints.forEach((endpoint)->{
-					endpoint.close();
-				});
-			}
+			currentEndpoints.forEach((endpoint)->{
+				endpoint.close();
+			});
 		}
 		
 		// let's wait for the remaining clients if we can
@@ -256,10 +251,11 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 			if(vaderShutdown) {
 				// maybe we missed some earlier
 				synchronized(liveEndpoints) {
-					liveEndpoints.forEach((endpoint)->{
-						endpoint.close();
-					});
+					currentEndpoints = new HashSet<>(liveEndpoints);
 				}
+				currentEndpoints.forEach((endpoint)->{
+						endpoint.close();
+				});
 			}
 		}
 		log.info("terminated");
@@ -295,36 +291,31 @@ public class ServerManager extends Manager implements ISessionProtocolHandler,
 			liveEndpoints.add(endpoint);
 		}
 		
-		/*
-		 * TODO: For Project2B Insert code here to ensure that the server listens on the
-		 * endpoint for shutdown events and calls the appropriate method. Use simple
-		 * authentication, where the string data for the event contains a secret that
-		 * that is provided by the client on its command line, and provided on the
-		 * command line when the server is running. If the secrets match then the
-		 * shutdown is issued, otherwise it is ignored.
-		 */
-		
-		endpoint.on(shutdownServer, (eventArgs) -> {
-			String secret = (String) eventArgs[0];
-			log.info("Received shutdown: " + secret);
-			if (secret.equals(password)) {
-				shutdown();
-			}
-		});
-		endpoint.on(forceShutdownServer, (eventArgs) -> {
-			String secret = (String) eventArgs[0];
-			log.info("Received force shutdown: " + secret);
-			if (secret.equals(password)) {
-				forceShutdown();
-			}
-		});
-		endpoint.on(vaderShutdownServer, (eventArgs) -> {
-			String secret = (String) eventArgs[0];
-			log.info("Received vader shutdown: " + secret);
-			if (secret.equals(password)) {
-				vaderShutdown();
-			}
-		});
+		if(password!=null) {
+			// listen for admin client events
+			endpoint.on(shutdownServer, (args)->{
+				String msg = (String) args[0];
+				if(!msg.equals(password)) {
+					log.warning("incorrect password given by client: "+endpoint.getOtherEndpointId());
+				} else {
+					shutdown();
+				}
+			}).on(forceShutdownServer, (args)->{
+				String msg = (String) args[0];
+				if(!msg.equals(password)) {
+					log.warning("incorrect password given by client: "+endpoint.getOtherEndpointId());
+				} else {
+					forceShutdown();
+				}
+			}).on(vaderShutdownServer, (args)->{
+				String msg = (String) args[0];
+				if(!msg.equals(password)) {
+					log.warning("incorrect password given by client: "+endpoint.getOtherEndpointId());
+				} else {
+					vaderShutdown();
+				}
+			});
+		}
 		
 		KeepAliveProtocol keepAliveProtocol = new KeepAliveProtocol(endpoint,this);
 		try {

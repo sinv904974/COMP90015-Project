@@ -108,12 +108,8 @@ public class IndexServer {
 	 * The default port number for the server.
 	 */
 	private static int port=Utils.indexServerPort; // default port number for the server
-
-	/**
-	 * The password from the user at the command line.
-	 */
-	private static String password = ""; // tiffo
 	
+
 	/**
 	 * Update the index with the filename and peerport.
 	 * @param filename
@@ -207,7 +203,7 @@ public class IndexServer {
 		System.exit(-1);
 	}
 	
-	public static void main( String[] args ) throws IOException, InterruptedException
+	public static void main( String[] args ) throws IOException
     {
     	// set a nice log format
 		System.setProperty("java.util.logging.SimpleFormatter.format",
@@ -216,8 +212,9 @@ public class IndexServer {
     	// parse command line options
         Options options = new Options();
         options.addOption("port",true,"server port, an integer");
-        options.addOption("password", true, "password, a string"); // tiffo
+        options.addOption("password",true,"password for server");
         
+       
         CommandLineParser parser = new DefaultParser();
         CommandLine cmd = null;
         try {
@@ -234,25 +231,14 @@ public class IndexServer {
 				help(options);
 			}
         }
-        if(cmd.hasOption("password")){ // tiffo
-        	password = cmd.getOptionValue("password");
-        }
-        
-        /**
-		 * TODO: for Project 2B. Create a "-password" option that reads a string
-		 * password from the user at the command line. Use the
-		 * ServerManager(port,password) initializer (that needs to be created by you in
-		 * ServerMain.java) if the password was given.
-		 */       
         
         // create a server manager and setup event handlers
-        //ServerManager serverManager = new ServerManager(port);
-        
         ServerManager serverManager;
-        if (password.isEmpty()) {
-        	serverManager = new ServerManager(port);
+        
+        if(cmd.hasOption("password")) {
+        	serverManager = new ServerManager(port,cmd.getOptionValue("password"));
         } else {
-        	serverManager = new ServerManager(port, password); // tiffo
+        	serverManager = new ServerManager(port);
         }
         
         // event handlers
@@ -296,9 +282,6 @@ public class IndexServer {
         log.info("PB Index Server starting up");
         serverManager.start();
         
-        // aaron: allows the process to terminate cleanly
-        serverManager.join();
-        Utils.getInstance().cleanUp();
     }
 
 }
